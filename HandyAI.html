@@ -1,0 +1,1446 @@
+
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport"
+            content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+        <title>Handy AI — Gesture Intelligence Platform</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link
+            href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Mono:wght@400;500&display=swap"
+            rel="stylesheet">
+        <script
+            src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"
+            crossorigin="anonymous"></script>
+        <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"
+            crossorigin="anonymous"></script>
+        <style>
+:root {
+  --bg: #03020a;
+  --accent: #7cffc4;
+  --accent2: #ff6bca;
+  --accent3: #6bb5ff;
+  --ink: #f4f4ff;
+  --ink-dim: #9aa3b8;
+  --glass: rgba(255,255,255,0.04);
+  --glass-brd: rgba(255,255,255,0.08);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; width: 100%; overflow: hidden; background: var(--bg); color: var(--ink); font-family: 'DM Mono', ui-monospace, monospace; }
+body { position: relative; cursor: default; }
+
+/* Film grain overlay */
+.grain {
+  position: fixed; inset: 0;
+  pointer-events: none;
+  z-index: 90;
+  opacity: 0.025;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+
+/* Top color stripe */
+.top-stripe {
+  position: fixed; top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--accent3), var(--accent2), var(--accent));
+  background-size: 300% 100%;
+  animation: stripe 8s linear infinite;
+  z-index: 100;
+  transition: opacity .4s ease;
+}
+@keyframes stripe { 0% {background-position: 0% 0%;} 100% {background-position: 300% 0%;} }
+
+/* Video & canvases */
+#video {
+  position: fixed; inset: 0;
+  width: 100vw; height: 100vh;
+  object-fit: cover;
+  transform: scaleX(-1);
+  filter: brightness(0.35) saturate(0.9) contrast(1.05);
+  z-index: 1;
+  background: #000;
+}
+canvas.layer {
+  position: fixed; inset: 0;
+  width: 100vw; height: 100vh;
+  pointer-events: none;
+}
+#bgCanvas { z-index: 2; opacity: 0.85; }
+#fxCanvas { z-index: 3; transform: scaleX(-1); }
+#drawCanvas { z-index: 4; transform: scaleX(-1); }
+
+/* Top bar */
+.topbar {
+  position: fixed; top: 14px; left: 14px; right: 14px;
+  z-index: 50;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 14px;
+}
+.brand-wrap {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--glass);
+  border: 1px solid var(--glass-brd);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  padding: 8px 14px;
+  border-radius: 999px;
+}
+.brand {
+  font-family: 'Syne', ui-sans-serif, sans-serif;
+  font-weight: 800;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+  background: linear-gradient(90deg, var(--accent), var(--accent3), var(--accent2));
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent;
+}
+.beta {
+  font-size: 9px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(124,255,196,0.15);
+  color: var(--accent);
+  border: 1px solid rgba(124,255,196,0.25);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.mode-switch {
+  display: flex; gap: 4px;
+  background: var(--glass);
+  border: 1px solid var(--glass-brd);
+  padding: 4px;
+  border-radius: 999px;
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+}
+.mode-btn {
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: var(--ink-dim);
+  border-radius: 999px;
+  cursor: pointer;
+  display: flex; align-items: center; gap: 8px;
+  transition: color .2s ease, background .2s ease, box-shadow .3s ease;
+  letter-spacing: 0.03em;
+}
+.mode-btn:hover { color: var(--ink); }
+.mode-btn .ic { font-size: 14px; line-height: 1; }
+.mode-btn.active[data-mode="play"] {
+  color: var(--accent);
+  background: rgba(124,255,196,0.12);
+  box-shadow: inset 0 0 0 1px rgba(124,255,196,0.35), 0 0 24px rgba(124,255,196,0.25);
+}
+.mode-btn.active[data-mode="shapes"] {
+  color: var(--accent2);
+  background: rgba(255,107,202,0.12);
+  box-shadow: inset 0 0 0 1px rgba(255,107,202,0.35), 0 0 24px rgba(255,107,202,0.25);
+}
+.mode-btn.active[data-mode="write"] {
+  color: var(--accent3);
+  background: rgba(107,181,255,0.12);
+  box-shadow: inset 0 0 0 1px rgba(107,181,255,0.35), 0 0 24px rgba(107,181,255,0.25);
+}
+
+.status-cluster { display: flex; gap: 8px; }
+.chip {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--glass);
+  border: 1px solid var(--glass-brd);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--ink-dim);
+  letter-spacing: 0.05em;
+}
+.chip .label { color: var(--ink); font-weight: 500; }
+.dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #ff5b74;
+  box-shadow: 0 0 8px #ff5b74;
+  transition: background .3s ease, box-shadow .3s ease;
+}
+.dot.live { background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+
+/* Bottom HUD chip */
+.hud {
+  position: fixed; bottom: 20px; left: 50%;
+  transform: translateX(-50%);
+  z-index: 45;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 18px;
+  background: var(--glass);
+  border: 1px solid var(--glass-brd);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  border-radius: 999px;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  color: var(--ink-dim);
+}
+.hud .gesture-label { color: var(--ink); font-weight: 500; text-transform: uppercase; letter-spacing: 0.12em; font-size: 11px; }
+.hud .live-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #46495c;
+}
+.hud.active .live-dot {
+  background: var(--accent);
+  animation: pulseDot 1s ease-in-out infinite;
+  box-shadow: 0 0 12px var(--accent);
+}
+@keyframes pulseDot {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.4); opacity: 0.6; }
+}
+
+/* Help panel */
+.help {
+  position: fixed; bottom: 20px; right: 20px;
+  z-index: 45;
+  max-width: 260px;
+  padding: 14px 16px;
+  background: var(--glass);
+  border: 1px solid var(--glass-brd);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  border-radius: 14px;
+  font-size: 11px;
+  color: var(--ink-dim);
+  line-height: 1.55;
+}
+.help h4 {
+  font-family: 'Syne', sans-serif;
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--ink);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+}
+.help .kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: var(--ink);
+  font-size: 10px;
+}
+
+/* Shake progress ring (Write mode) */
+.shake-ring {
+  position: fixed;
+  bottom: 180px;
+  right: 26px;
+  z-index: 46;
+  width: 56px; height: 56px;
+  display: none;
+  transition: opacity .3s ease;
+}
+.shake-ring.on { display: block; }
+.shake-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.shake-ring .track { stroke: rgba(255,255,255,0.08); }
+.shake-ring .fill { stroke: var(--accent3); transition: stroke-dashoffset .1s linear, stroke .2s ease; filter: drop-shadow(0 0 6px currentColor); }
+.shake-ring .label {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; color: var(--ink-dim); letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Clear button (Write mode) */
+.clear-btn {
+  position: fixed;
+  bottom: 100px;
+  right: 20px;
+  z-index: 46;
+  display: none;
+  padding: 10px 18px;
+  background: rgba(107,181,255,0.08);
+  border: 1px solid rgba(107,181,255,0.3);
+  color: var(--accent3);
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  border-radius: 999px;
+  cursor: pointer;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  transition: background .2s ease, box-shadow .2s ease, transform .1s ease;
+}
+.clear-btn:hover { background: rgba(107,181,255,0.15); box-shadow: 0 0 20px rgba(107,181,255,0.3); }
+.clear-btn:active { transform: scale(0.97); }
+.clear-btn.on { display: block; }
+
+/* Toast */
+.toast {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%) scale(0.85);
+  z-index: 80;
+  font-family: 'Syne', sans-serif;
+  font-weight: 800;
+  font-size: clamp(48px, 8vw, 96px);
+  letter-spacing: -0.03em;
+  color: var(--accent);
+  opacity: 0;
+  pointer-events: none;
+  text-shadow: 0 0 40px currentColor;
+  transition: opacity .25s ease;
+}
+.toast.show {
+  animation: toastPop 1.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+@keyframes toastPop {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.85); }
+  15% { opacity: 1; transform: translate(-50%, -50%) scale(1.05); }
+  25% { transform: translate(-50%, -50%) scale(1); }
+  80% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.95); }
+}
+
+/* Splash */
+.splash {
+  position: fixed; inset: 0;
+  z-index: 200;
+  background: radial-gradient(1200px 800px at 50% 40%, rgba(124,255,196,0.08), transparent 60%),
+              radial-gradient(900px 600px at 20% 80%, rgba(107,181,255,0.06), transparent 60%),
+              radial-gradient(900px 600px at 80% 80%, rgba(255,107,202,0.06), transparent 60%),
+              var(--bg);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 32px;
+  padding: 40px;
+  transition: opacity .8s ease, visibility .8s ease;
+}
+.splash.hide { opacity: 0; visibility: hidden; }
+
+.rings {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 620px; height: 620px;
+  pointer-events: none;
+}
+.rings .ring {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 1px solid;
+  opacity: 0;
+}
+.rings .ring:nth-child(1) {
+  width: 220px; height: 220px;
+  border-color: rgba(124,255,196,0.4);
+  animation: ringPulse 4s ease-out infinite;
+}
+.rings .ring:nth-child(2) {
+  width: 400px; height: 400px;
+  border-color: rgba(107,181,255,0.3);
+  animation: ringPulse 4s ease-out infinite;
+  animation-delay: 1.3s;
+}
+.rings .ring:nth-child(3) {
+  width: 580px; height: 580px;
+  border-color: rgba(255,107,202,0.25);
+  animation: ringPulse 4s ease-out infinite;
+  animation-delay: 2.6s;
+}
+@keyframes ringPulse {
+  0% { transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
+  20% { opacity: 0.8; }
+  100% { transform: translate(-50%, -50%) scale(1.4); opacity: 0; }
+}
+
+.splash-inner {
+  position: relative;
+  z-index: 2;
+  display: flex; flex-direction: column;
+  align-items: center;
+  gap: 22px;
+  text-align: center;
+}
+.splash-title {
+  font-family: 'Syne', sans-serif;
+  font-weight: 800;
+  font-size: clamp(64px, 12vw, 160px);
+  letter-spacing: -0.05em;
+  line-height: 0.9;
+  background: linear-gradient(105deg, var(--accent) 0%, var(--accent3) 45%, var(--accent2) 100%);
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 30px rgba(124,255,196,0.15));
+}
+.splash-sub {
+  font-size: 11px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.pills {
+  display: flex; gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 8px;
+}
+.pill {
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: var(--glass);
+  border: 1px solid var(--glass-brd);
+  font-size: 11px;
+  color: var(--ink-dim);
+  letter-spacing: 0.05em;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.pill::before {
+  content: '';
+  display: inline-block;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.pill:nth-child(2)::before { background: var(--accent2); }
+.pill:nth-child(3)::before { background: var(--accent3); }
+
+.cta {
+  margin-top: 16px;
+  padding: 14px 36px;
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.25em;
+  color: #04120c;
+  background: var(--accent);
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 0 40px rgba(124,255,196,0.4), inset 0 0 0 1px rgba(255,255,255,0.2);
+  transition: transform .15s ease, box-shadow .3s ease;
+  font-weight: 500;
+}
+.cta:hover { transform: translateY(-2px); box-shadow: 0 4px 60px rgba(124,255,196,0.55), inset 0 0 0 1px rgba(255,255,255,0.3); }
+.cta:active { transform: translateY(0); }
+.cta-note {
+  font-size: 10px;
+  color: var(--ink-dim);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  .mode-btn .lbl { display: none; }
+  .mode-btn { padding: 10px 12px; }
+  .brand { font-size: 16px; }
+  .beta { display: none; }
+  .chip { padding: 6px 10px; font-size: 10px; }
+  .help { max-width: 200px; font-size: 10px; padding: 10px 12px; }
+  .pills { flex-direction: column; align-items: center; }
+  .hud { bottom: 14px; padding: 8px 14px; }
+  .topbar { top: 8px; left: 8px; right: 8px; gap: 8px; }
+}
+</style>
+    </head>
+    <body>
+
+        <div class="top-stripe" id="topStripe"></div>
+        <div class="grain"></div>
+
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="bgCanvas" class="layer"></canvas>
+        <canvas id="fxCanvas" class="layer"></canvas>
+        <canvas id="drawCanvas" class="layer"></canvas>
+
+        <div class="topbar">
+            <div class="brand-wrap">
+                <div class="brand">Handy AI</div>
+                <div class="beta">Beta</div>
+            </div>
+            <div class="mode-switch" id="modeSwitch">
+                <button class="mode-btn active" data-mode="play"
+                    data-testid="mode-play"><span class="ic">▶</span><span
+                        class="lbl">Play</span></button>
+                <button class="mode-btn" data-mode="shapes"
+                    data-testid="mode-shapes"><span class="ic">♥</span><span
+                        class="lbl">Shapes</span></button>
+                <button class="mode-btn" data-mode="write"
+                    data-testid="mode-write"><span class="ic">✏</span><span
+                        class="lbl">Write</span></button>
+            </div>
+            <div class="status-cluster">
+                <div class="chip" data-testid="fps-chip"><span class="dot"
+                        id="camDot"></span><span class="label"
+                        id="fpsLabel">0</span> fps</div>
+                <div class="chip" data-testid="hands-chip"><span class="label"
+                        id="handCount">0</span> hands</div>
+            </div>
+        </div>
+
+        <div class="hud" id="hud">
+            <span class="live-dot"></span>
+            <span class="gesture-label" id="gestureLabel">Awaiting
+                gesture</span>
+        </div>
+
+        <div class="help" id="helpPanel" data-testid="help-panel">
+            <h4 id="helpTitle">Play Mode</h4>
+            <div id="helpBody">
+                Move your hands freely. <span class="kbd">Pinch</span> for
+                sparks. Bring both hands close for a mandala.
+            </div>
+        </div>
+
+        <div class="shake-ring" id="shakeRing" data-testid="shake-ring">
+            <svg viewBox="0 0 56 56">
+                <circle class="track" cx="28" cy="28" r="24" stroke-width="3"
+                    fill="none" />
+                <circle class="fill" id="shakeFill" cx="28" cy="28" r="24"
+                    stroke-width="3" fill="none"
+                    stroke-dasharray="150.8" stroke-dashoffset="150.8"
+                    stroke-linecap="round" />
+            </svg>
+            <div class="label">shake</div>
+        </div>
+
+        <button class="clear-btn" id="clearBtn" data-testid="clear-btn">Clear
+            Canvas</button>
+
+        <div class="toast" id="toast"></div>
+
+        <div class="splash" id="splash">
+            <div class="rings"><div class="ring"></div><div
+                    class="ring"></div><div class="ring"></div></div>
+            <div class="splash-inner">
+                <div class="splash-title">Handy AI</div>
+                <div class="splash-sub">Gesture Intelligence Platform</div>
+                <div class="pills">
+                    <div class="pill">Real-time Tracking</div>
+                    <div class="pill">Gesture Physics</div>
+                    <div class="pill">Air Drawing</div>
+                </div>
+                <button class="cta" id="startBtn" data-testid="start-btn">Enter
+                    Experience</button>
+                <div class="cta-note">Camera access required · Best in Chrome /
+                    Edge</div>
+            </div>
+        </div>
+
+        <script>
+(() => {
+'use strict';
+
+// ────────────── ELEMENTS ──────────────
+const video = document.getElementById('video');
+const bgCanvas = document.getElementById('bgCanvas');
+const fxCanvas = document.getElementById('fxCanvas');
+const drawCanvas = document.getElementById('drawCanvas');
+const bgCtx = bgCanvas.getContext('2d');
+const fxCtx = fxCanvas.getContext('2d');
+const drawCtx = drawCanvas.getContext('2d');
+const splash = document.getElementById('splash');
+const startBtn = document.getElementById('startBtn');
+const modeSwitch = document.getElementById('modeSwitch');
+const fpsLabel = document.getElementById('fpsLabel');
+const handCountEl = document.getElementById('handCount');
+const camDot = document.getElementById('camDot');
+const gestureLabel = document.getElementById('gestureLabel');
+const hud = document.getElementById('hud');
+const helpTitle = document.getElementById('helpTitle');
+const helpBody = document.getElementById('helpBody');
+const shakeRing = document.getElementById('shakeRing');
+const shakeFill = document.getElementById('shakeFill');
+const clearBtn = document.getElementById('clearBtn');
+const toast = document.getElementById('toast');
+const topStripe = document.getElementById('topStripe');
+
+// ────────────── STATE ──────────────
+let mode = 'play';
+let W = 0, H = 0;
+let handsData = [];        // last onResults landmarks
+let handsMeta = [];        // per-hand handedness label
+let particles = [];
+let ripples = [];
+let paths = [];            // saved strokes
+let activePath = null;     // current stroke
+let drawingCooldown = 0;
+let matrixCols = [];
+let matrixFontSize = 15;
+let handVelocity = 0;
+let prevHandCenter = null;
+let lastFrameTs = performance.now();
+let fpsAcc = 0, fpsCount = 0, fpsLast = performance.now();
+let time = 0;
+let toastTimer = null;
+let shakeHistory = [];     // wrist X positions (Write mode)
+let shakeReversals = 0;
+let shakeClearedAt = 0;
+let lastPinchState = [false, false];
+let audioCtx = null, humOsc = null, humGain = null;
+let modeAccent = { play: '#7cffc4', shapes: '#ff6bca', write: '#6bb5ff' };
+
+// ────────────── RESIZE ──────────────
+function resize() {
+  W = window.innerWidth;
+  H = window.innerHeight;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  [bgCanvas, fxCanvas, drawCanvas].forEach(c => {
+    c.width = W * dpr; c.height = H * dpr;
+    c.style.width = W + 'px'; c.style.height = H + 'px';
+    c.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+  });
+  initMatrix();
+}
+window.addEventListener('resize', resize);
+
+// ────────────── AUDIO ──────────────
+function initAudio() {
+  if (audioCtx) return;
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  } catch (e) { audioCtx = null; }
+}
+function zap() {
+  if (!audioCtx) return;
+  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+  o.type = 'sawtooth'; o.frequency.setValueAtTime(700, audioCtx.currentTime);
+  o.frequency.exponentialRampToValueAtTime(30, audioCtx.currentTime + 0.12);
+  g.gain.setValueAtTime(0.18, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.12);
+  o.connect(g); g.connect(audioCtx.destination);
+  o.start(); o.stop(audioCtx.currentTime + 0.14);
+}
+function pop(freq = 520) {
+  if (!audioCtx) return;
+  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  o.frequency.exponentialRampToValueAtTime(freq * 0.5, audioCtx.currentTime + 0.08);
+  g.gain.setValueAtTime(0.22, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+  o.connect(g); g.connect(audioCtx.destination);
+  o.start(); o.stop(audioCtx.currentTime + 0.12);
+}
+function humStart() {
+  if (!audioCtx || humOsc) return;
+  humOsc = audioCtx.createOscillator();
+  humGain = audioCtx.createGain();
+  humOsc.type = 'sine';
+  humOsc.frequency.value = 120;
+  humGain.gain.value = 0;
+  humOsc.connect(humGain); humGain.connect(audioCtx.destination);
+  humOsc.start();
+}
+function humUpdate(freq, gain) {
+  if (!humOsc) return;
+  humOsc.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.05);
+  humGain.gain.setTargetAtTime(gain, audioCtx.currentTime, 0.05);
+}
+function humStop() {
+  if (humGain) humGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+}
+
+// ────────────── MATRIX RAIN ──────────────
+function initMatrix() {
+  matrixFontSize = 15;
+  const cols = Math.ceil(W / matrixFontSize);
+  matrixCols = new Array(cols).fill(0).map(() => Math.random() * H);
+}
+function drawMatrix() {
+  const fadeAlpha = 0.08 + Math.min(0.15, handVelocity * 0.006);
+  bgCtx.fillStyle = `rgba(3,2,10,${fadeAlpha})`;
+  bgCtx.globalCompositeOperation = 'source-over';
+  bgCtx.fillRect(0, 0, W, H);
+
+  const hue = (time * 0.4) % 360;
+  bgCtx.fillStyle = `hsl(${hue}, 80%, 60%)`;
+  bgCtx.font = `${matrixFontSize}px 'DM Mono', monospace`;
+  bgCtx.globalAlpha = 0.75;
+
+  const speedBoost = 1 + Math.min(3, handVelocity * 0.08);
+  for (let i = 0; i < matrixCols.length; i++) {
+    const ch = String.fromCharCode(0x30A0 + Math.floor(Math.random() * 96));
+    const x = i * matrixFontSize;
+    const y = matrixCols[i];
+    // brighter head
+    bgCtx.fillStyle = `hsl(${(hue + i * 3) % 360}, 90%, 70%)`;
+    bgCtx.fillText(ch, x, y);
+    matrixCols[i] += matrixFontSize * (0.6 + Math.random() * 0.9) * speedBoost;
+    if (matrixCols[i] > H && Math.random() > 0.975) matrixCols[i] = 0;
+  }
+  bgCtx.globalAlpha = 1;
+}
+
+// ────────────── HELPERS ──────────────
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+function dist3(a, b) {
+  const dx = a.x - b.x, dy = a.y - b.y, dz = (a.z||0) - (b.z||0);
+  return Math.hypot(dx, dy, dz);
+}
+function landmarkPx(lm) { return { x: lm.x * W, y: lm.y * H }; }
+function palmCenter(lms) {
+  // avg of wrist(0), MCPs 5, 9, 13, 17
+  const idx = [0, 5, 9, 13, 17];
+  let x = 0, y = 0;
+  idx.forEach(i => { x += lms[i].x; y += lms[i].y; });
+  return { x: x / idx.length, y: y / idx.length };
+}
+function fingerSpread(lms) {
+  // avg distance from palm center to each fingertip (normalized coords)
+  const pc = palmCenter(lms);
+  const tips = [4, 8, 12, 16, 20];
+  let s = 0;
+  tips.forEach(i => { s += Math.hypot(lms[i].x - pc.x, lms[i].y - pc.y); });
+  return s / tips.length;
+}
+function fingerExtended(lms, tipIdx, pipIdx) {
+  // finger considered extended when tip is farther from wrist than PIP joint
+  const wrist = lms[0];
+  const tip = lms[tipIdx], pip = lms[pipIdx];
+  const dTip = Math.hypot(tip.x - wrist.x, tip.y - wrist.y);
+  const dPip = Math.hypot(pip.x - wrist.x, pip.y - wrist.y);
+  return dTip > dPip * 1.05;
+}
+function pinchAmount(lms) { return Math.hypot(lms[4].x - lms[8].x, lms[4].y - lms[8].y); }
+
+// ────────────── HAND SKELETON (Play mode) ──────────────
+const HAND_CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,4],
+  [0,5],[5,6],[6,7],[7,8],
+  [5,9],[9,10],[10,11],[11,12],
+  [9,13],[13,14],[14,15],[15,16],
+  [13,17],[17,18],[18,19],[19,20],
+  [0,17]
+];
+function drawSkeleton(lms, handIndex) {
+  const hue = (time * 60 + handIndex * 160) % 360;
+  const primary = `hsl(${hue}, 90%, 65%)`;
+  const secondary = `hsl(${(hue + 60) % 360}, 90%, 70%)`;
+  fxCtx.save();
+  fxCtx.globalCompositeOperation = 'screen';
+  fxCtx.lineCap = 'round';
+  fxCtx.lineJoin = 'round';
+  fxCtx.shadowBlur = 14;
+
+  // connectors
+  HAND_CONNECTIONS.forEach(([a, b]) => {
+    const A = landmarkPx(lms[a]), B = landmarkPx(lms[b]);
+    fxCtx.strokeStyle = primary;
+    fxCtx.shadowColor = primary;
+    fxCtx.lineWidth = 3.5;
+    fxCtx.beginPath();
+    fxCtx.moveTo(A.x, A.y);
+    fxCtx.lineTo(B.x, B.y);
+    fxCtx.stroke();
+  });
+
+  // fingertip blobs
+  const tips = [4, 8, 12, 16, 20];
+  tips.forEach((i, k) => {
+    const p = landmarkPx(lms[i]);
+    fxCtx.fillStyle = secondary;
+    fxCtx.shadowColor = secondary;
+    fxCtx.shadowBlur = 20;
+    fxCtx.beginPath();
+    fxCtx.arc(p.x, p.y, 9, 0, Math.PI * 2);
+    fxCtx.fill();
+    // inner bright dot
+    fxCtx.fillStyle = 'rgba(255,255,255,0.9)';
+    fxCtx.shadowBlur = 0;
+    fxCtx.beginPath();
+    fxCtx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+    fxCtx.fill();
+
+    // sparkle trail
+    if (Math.random() < 0.3) {
+      particles.push({
+        x: p.x + (Math.random()-0.5)*8,
+        y: p.y + (Math.random()-0.5)*8,
+        vx: (Math.random()-0.5)*1.2,
+        vy: (Math.random()-0.5)*1.2 - 0.5,
+        life: 45,
+        maxLife: 45,
+        size: 2 + Math.random()*2,
+        color: `hsl(${(hue + k*20) % 360}, 90%, 70%)`
+      });
+    }
+  });
+  fxCtx.restore();
+}
+
+// ────────────── LIGHTNING BOLT ──────────────
+function drawLightning(a, b, color) {
+  const segments = 8;
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const len = Math.hypot(dx, dy);
+  const nx = -dy / len, ny = dx / len;
+  fxCtx.save();
+  fxCtx.globalCompositeOperation = 'screen';
+  fxCtx.strokeStyle = color;
+  fxCtx.shadowColor = color;
+  fxCtx.shadowBlur = 18;
+  fxCtx.lineWidth = 2.2;
+  fxCtx.beginPath();
+  fxCtx.moveTo(a.x, a.y);
+  for (let i = 1; i < segments; i++) {
+    const t = i / segments;
+    const jitter = (Math.random() - 0.5) * 22;
+    fxCtx.lineTo(a.x + dx * t + nx * jitter, a.y + dy * t + ny * jitter);
+  }
+  fxCtx.lineTo(b.x, b.y);
+  fxCtx.stroke();
+  fxCtx.restore();
+}
+
+// ────────────── MANDALA ──────────────
+function drawMandala(fingertips) {
+  if (fingertips.length < 3) return;
+  const cx = fingertips.reduce((s,p) => s + p.x, 0) / fingertips.length;
+  const cy = fingertips.reduce((s,p) => s + p.y, 0) / fingertips.length;
+  fxCtx.save();
+  fxCtx.globalCompositeOperation = 'screen';
+  fxCtx.translate(cx, cy);
+  fxCtx.rotate(time * 0.5);
+  fxCtx.strokeStyle = `hsl(${(time*30) % 360}, 90%, 70%)`;
+  fxCtx.shadowColor = fxCtx.strokeStyle;
+  fxCtx.shadowBlur = 12;
+  fxCtx.lineWidth = 1.2;
+  fxCtx.globalAlpha = 0.75;
+  // connect all-to-all
+  const pts = fingertips.map(p => ({ x: p.x - cx, y: p.y - cy }));
+  fxCtx.beginPath();
+  for (let i = 0; i < pts.length; i++) {
+    for (let j = i + 1; j < pts.length; j++) {
+      fxCtx.moveTo(pts[i].x, pts[i].y);
+      fxCtx.lineTo(pts[j].x, pts[j].y);
+    }
+  }
+  fxCtx.stroke();
+  fxCtx.restore();
+}
+
+// ────────────── PARTICLES & RIPPLES ──────────────
+function updateParticles() {
+  fxCtx.save();
+  fxCtx.globalCompositeOperation = 'screen';
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.vy += 0.15;
+    p.x += p.vx;
+    p.y += p.vy;
+    p.life--;
+    const a = Math.max(0, p.life / p.maxLife);
+    fxCtx.fillStyle = p.color;
+    fxCtx.globalAlpha = a;
+    fxCtx.shadowColor = p.color;
+    fxCtx.shadowBlur = 10;
+    fxCtx.beginPath();
+    fxCtx.arc(p.x, p.y, p.size * a, 0, Math.PI * 2);
+    fxCtx.fill();
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+  fxCtx.restore();
+}
+function spawnBurst(x, y, color, n = 18) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const s = 2 + Math.random() * 4;
+    particles.push({
+      x, y,
+      vx: Math.cos(a) * s,
+      vy: Math.sin(a) * s,
+      life: 45, maxLife: 45,
+      size: 2 + Math.random() * 3,
+      color
+    });
+  }
+}
+function updateRipples() {
+  fxCtx.save();
+  fxCtx.globalCompositeOperation = 'screen';
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const r = ripples[i];
+    r.life--;
+    const t = 1 - r.life / r.maxLife;
+    const ease = 1 - Math.pow(1 - t, 3);
+    const rad = ease * r.maxRadius;
+    const a = 1 - t;
+    fxCtx.strokeStyle = r.color;
+    fxCtx.shadowColor = r.color;
+    fxCtx.shadowBlur = 16;
+    fxCtx.globalAlpha = a * 0.85;
+    fxCtx.lineWidth = 2.4;
+    fxCtx.beginPath();
+    fxCtx.arc(r.x, r.y, rad, 0, Math.PI * 2);
+    fxCtx.stroke();
+    fxCtx.lineWidth = 1;
+    fxCtx.globalAlpha = a * 0.5;
+    fxCtx.beginPath();
+    fxCtx.arc(r.x, r.y, rad * 0.6, 0, Math.PI * 2);
+    fxCtx.stroke();
+    if (r.life <= 0) ripples.splice(i, 1);
+  }
+  fxCtx.restore();
+}
+
+// ────────────── SHAPES: HEART, PEACE, STAR ──────────────
+function drawHeart(cx, cy, scale) {
+  const pulse = 1 + Math.sin(time * 4) * 0.05;
+  scale *= pulse;
+  fxCtx.save();
+  fxCtx.globalCompositeOperation = 'screen';
+  fxCtx.translate(cx, cy);
+  fxCtx.beginPath();
+  for (let t = 0; t <= Math.PI * 2 + 0.1; t += 0.05) {
+    const x = 16 * Math.pow(Math.sin(t), 3);
+    const y = -(13*Math.cos(t) - 5*Math.cos(2*t) - 2*Math.cos(3*t) - Math.cos(4*t));
+    if (t === 0) fxCtx.moveTo(x * scale, y * scale);
+    else fxCtx.lineTo(x * scale, y * scale);
+  }
+  fxCtx.closePath();
+  const grad = fxCtx.createRadialGradient(0, -6*scale, 4, 0, 0, 22*scale);
+  grad.addColorStop(0, 'rgba(255,200,230,0.95)');
+  grad.addColorStop(0.5, 'rgba(255,107,202,0.75)');
+  grad.addColorStop(1, 'rgba(180,40,120,0.25)');
+  fxCtx.fillStyle = grad;
+  fxCtx.shadowColor = '#ff6bca';
+  fxCtx.shadowBlur = 30;
+  fxCtx.fill();
+  fxCtx.strokeStyle = '#ffb3dd';
+  fxCtx.lineWidth = 2;
+  fxCtx.stroke();
+  // inner shine
+  fxCtx.fillStyle = 'rgba(255,255,255,0.35)';
+  fxCtx.beginPath();
+  fxCtx.ellipse(-6*scale, -8*scale, 4*scale, 2*scale, -0.5, 0, Math.PI * 2);
+  fxCtx.fill();
+  fxCtx.restore();
+}
+function drawPeace(cx, cy, r) {
+  fxCtx.save();
+  fxCtx.globalCompositeOperation = 'screen';
+  fxCtx.translate(cx, cy);
+  fxCtx.strokeStyle = '#ff6bca';
+  fxCtx.shadowColor = '#ff6bca';
+  fxCtx.shadowBlur = 24;
+  fxCtx.lineWidth = 4;
+  fxCtx.beginPath();
+  fxCtx.arc(0, 0, r, 0, Math.PI * 2);
+  fxCtx.stroke();
+  // vertical line
+  fxCtx.beginPath();
+  fxCtx.moveTo(0, -r); fxCtx.lineTo(0, r);
+  fxCtx.stroke();
+  // diagonal down-left and down-right
+  fxCtx.beginPath();
+  fxCtx.moveTo(0, 0); fxCtx.lineTo(-r * 0.71, r * 0.71);
+  fxCtx.stroke();
+  fxCtx.beginPath();
+  fxCtx.moveTo(0, 0); fxCtx.lineTo(r * 0.71, r * 0.71);
+  fxCtx.stroke();
+  fxCtx.restore();
+}
+function drawStar(cx, cy, r) {
+  fxCtx.save();
+  fxCtx.globalCompositeOperation = 'screen';
+  fxCtx.translate(cx, cy);
+  fxCtx.rotate(time * 1.2);
+  fxCtx.beginPath();
+  const points = 8;
+  for (let i = 0; i < points * 2; i++) {
+    const rad = i % 2 === 0 ? r : r * 0.42;
+    const a = (i / (points * 2)) * Math.PI * 2;
+    const x = Math.cos(a) * rad, y = Math.sin(a) * rad;
+    if (i === 0) fxCtx.moveTo(x, y); else fxCtx.lineTo(x, y);
+  }
+  fxCtx.closePath();
+  const grad = fxCtx.createRadialGradient(0, 0, 0, 0, 0, r);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.5, 'rgba(255,220,120,0.9)');
+  grad.addColorStop(1, 'rgba(255,180,60,0)');
+  fxCtx.fillStyle = grad;
+  fxCtx.shadowColor = '#ffd76b';
+  fxCtx.shadowBlur = 40;
+  fxCtx.fill();
+  fxCtx.restore();
+}
+
+// ────────────── TOAST ──────────────
+function showToast(text, color) {
+  toast.textContent = text;
+  toast.style.color = color || modeAccent[mode];
+  toast.classList.remove('show');
+  void toast.offsetWidth;
+  toast.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove('show'), 1600);
+}
+
+// ────────────── MODE SWITCH ──────────────
+function setMode(newMode) {
+  mode = newMode;
+  document.querySelectorAll('.mode-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === mode);
+  });
+  const helps = {
+    play:   { title: 'Play Mode',   body: 'Move your hands freely. <span class="kbd">Pinch</span> for sparks. Bring both hands close for a mandala + lightning.' },
+    shapes: { title: 'Shapes Mode', body: 'Both hands: open palms close = <span class="kbd">♥</span>. One hand peace = <span class="kbd">✌</span>. Both fists = <span class="kbd">★</span>.' },
+    write:  { title: 'Write Mode',  body: 'Point <span class="kbd">☝</span> to draw. Pinch to lift the pen. Wave open palm to <span class="kbd">shake-clear</span>.' }
+  };
+  helpTitle.textContent = helps[mode].title;
+  helpBody.innerHTML = helps[mode].body;
+  clearBtn.classList.toggle('on', mode === 'write');
+  shakeRing.classList.toggle('on', mode === 'write');
+  // reset shake tracking on mode change
+  shakeHistory = []; shakeReversals = 0; updateShakeRing(0);
+  // clear ephemeral fx on switch
+  particles = []; ripples = [];
+}
+modeSwitch.addEventListener('click', (e) => {
+  const btn = e.target.closest('.mode-btn');
+  if (btn) setMode(btn.dataset.mode);
+});
+
+// ────────────── CLEAR BTN ──────────────
+clearBtn.addEventListener('click', () => {
+  paths = []; activePath = null;
+  drawCtx.clearRect(0, 0, W, H);
+  pop(680);
+  showToast('🌊 Canvas cleared', modeAccent.write);
+});
+
+// ────────────── SHAKE RING ──────────────
+function updateShakeRing(progress) {
+  // circumference = 2πr = 2π*24 ≈ 150.8
+  const C = 150.8;
+  shakeFill.setAttribute('stroke-dashoffset', C * (1 - progress));
+  let color = '#6bb5ff';
+  if (progress > 0.5) color = '#ffdd66';
+  if (progress > 0.85) color = '#ff8a3d';
+  shakeFill.setAttribute('stroke', color);
+}
+
+// ────────────── DRAWING STROKES ──────────────
+function renderStrokesFrame() {
+  // called each frame — draw active path progressive segment
+  // (persistent path stored in drawCanvas via commit)
+}
+function commitStrokePoint(x, y, color) {
+  if (!activePath) {
+    activePath = { pts: [{x, y}], color };
+    return;
+  }
+  const pts = activePath.pts;
+  pts.push({x, y});
+  if (pts.length >= 3) {
+    const p0 = pts[pts.length - 3];
+    const p1 = pts[pts.length - 2];
+    const p2 = pts[pts.length - 1];
+    const mid1 = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
+    const mid2 = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+    drawCtx.save();
+    drawCtx.strokeStyle = activePath.color;
+    drawCtx.lineWidth = 4.5;
+    drawCtx.lineCap = 'round';
+    drawCtx.lineJoin = 'round';
+    drawCtx.shadowColor = activePath.color;
+    drawCtx.shadowBlur = 12;
+    drawCtx.beginPath();
+    drawCtx.moveTo(mid1.x, mid1.y);
+    drawCtx.quadraticCurveTo(p1.x, p1.y, mid2.x, mid2.y);
+    drawCtx.stroke();
+    drawCtx.restore();
+  } else if (pts.length === 2) {
+    drawCtx.save();
+    drawCtx.strokeStyle = activePath.color;
+    drawCtx.lineWidth = 4.5;
+    drawCtx.lineCap = 'round';
+    drawCtx.shadowColor = activePath.color;
+    drawCtx.shadowBlur = 12;
+    drawCtx.beginPath();
+    drawCtx.moveTo(pts[0].x, pts[0].y);
+    drawCtx.lineTo(pts[1].x, pts[1].y);
+    drawCtx.stroke();
+    drawCtx.restore();
+  }
+}
+function endStroke() {
+  if (activePath) { paths.push(activePath); activePath = null; }
+}
+
+// ────────────── PROCESS ONE FRAME (per mode) ──────────────
+function processFrame() {
+  fxCtx.clearRect(0, 0, W, H);
+
+  // compute hand velocity for matrix rain
+  if (handsData.length > 0) {
+    const center = handsData[0][9]; // middle finger MCP
+    const c = { x: center.x * W, y: center.y * H };
+    if (prevHandCenter) {
+      const v = Math.hypot(c.x - prevHandCenter.x, c.y - prevHandCenter.y);
+      handVelocity = handVelocity * 0.85 + v * 0.15;
+    }
+    prevHandCenter = c;
+  } else {
+    handVelocity *= 0.92;
+    prevHandCenter = null;
+  }
+
+  drawMatrix();
+
+  let currentGesture = 'Awaiting gesture';
+  let gestureActive = false;
+
+  // Draw skeleton on all modes for visual continuity in Play
+  if (mode === 'play') {
+    handsData.forEach((lms, i) => drawSkeleton(lms, i));
+  } else {
+    // lighter skeleton in shapes/write
+    handsData.forEach((lms, i) => {
+      fxCtx.save();
+      fxCtx.globalCompositeOperation = 'screen';
+      fxCtx.globalAlpha = 0.5;
+      drawSkeleton(lms, i);
+      fxCtx.restore();
+    });
+  }
+
+  // ──── PLAY MODE ────
+  if (mode === 'play') {
+    // pinch detection per hand
+    handsData.forEach((lms, i) => {
+      const pinch = pinchAmount(lms);
+      const pinching = pinch < 0.055;
+      if (pinching && !lastPinchState[i]) {
+        const p = landmarkPx(lms[8]);
+        const midX = (lms[4].x + lms[8].x)/2 * W;
+        const midY = (lms[4].y + lms[8].y)/2 * H;
+        ripples.push({ x: midX, y: midY, life: 55, maxLife: 55, maxRadius: 140, color: '#7cffc4' });
+        spawnBurst(midX, midY, '#7cffc4', 22);
+        zap();
+        showToast('⚡ Pinch', '#7cffc4');
+        currentGesture = 'Pinch'; gestureActive = true;
+      }
+      lastPinchState[i] = pinching;
+    });
+
+    // two-hand FX
+    if (handsData.length === 2) {
+      const tipIdx = [4, 8, 12, 16, 20];
+      const A = handsData[0], B = handsData[1];
+      const aTips = tipIdx.map(i => landmarkPx(A[i]));
+      const bTips = tipIdx.map(i => landmarkPx(B[i]));
+
+      // gradient lines
+      fxCtx.save();
+      fxCtx.globalCompositeOperation = 'screen';
+      for (let k = 0; k < 5; k++) {
+        const a = aTips[k], b = bTips[k];
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        const grad = fxCtx.createLinearGradient(a.x, a.y, b.x, b.y);
+        grad.addColorStop(0, `hsl(${(time*40 + k*40) % 360}, 90%, 65%)`);
+        grad.addColorStop(1, `hsl(${(time*40 + k*40 + 140) % 360}, 90%, 65%)`);
+        fxCtx.strokeStyle = grad;
+        fxCtx.lineWidth = 1.6;
+        fxCtx.shadowColor = grad;
+        fxCtx.shadowBlur = 8;
+        fxCtx.globalAlpha = 0.7;
+        fxCtx.beginPath();
+        fxCtx.moveTo(a.x, a.y); fxCtx.lineTo(b.x, b.y);
+        fxCtx.stroke();
+
+        if (d < 140) {
+          drawLightning(a, b, `hsl(${(time*80 + k*40)%360}, 90%, 75%)`);
+        }
+      }
+      fxCtx.restore();
+
+      // mandala
+      drawMandala([...aTips, ...bTips]);
+
+      // hum: pitch scales with inter-hand distance
+      const pcA = palmCenter(A), pcB = palmCenter(B);
+      const dNorm = Math.hypot(pcA.x - pcB.x, pcA.y - pcB.y);
+      const freq = 80 + (1 - Math.min(1, dNorm)) * 280;
+      const gain = 0.05 + (1 - Math.min(1, dNorm)) * 0.08;
+      humUpdate(freq, gain);
+      if (currentGesture === 'Awaiting gesture') { currentGesture = 'Two-Hand Field'; gestureActive = true; }
+    } else {
+      humUpdate(80, 0);
+      if (currentGesture === 'Awaiting gesture' && handsData.length === 1) {
+        currentGesture = 'Tracking'; gestureActive = true;
+      }
+    }
+  }
+
+  // ──── SHAPES MODE ────
+  else if (mode === 'shapes') {
+    if (handsData.length === 2) {
+      const A = handsData[0], B = handsData[1];
+      const pcA = palmCenter(A), pcB = palmCenter(B);
+      const palmD = Math.hypot(pcA.x - pcB.x, pcA.y - pcB.y);
+      const spreadA = fingerSpread(A), spreadB = fingerSpread(B);
+      const spreadAvg = (spreadA + spreadB) / 2;
+
+      // HEART
+      if (palmD < 0.35 && spreadAvg > 0.09) {
+        const cx = ((pcA.x + pcB.x) / 2) * W;
+        const cy = ((pcA.y + pcB.y) / 2) * H;
+        const scale = Math.max(6, 90 * (1 - palmD / 0.4));
+        drawHeart(cx, cy, scale);
+        if (currentGesture !== 'Heart') pop(560);
+        currentGesture = 'Heart ♥'; gestureActive = true;
+        if (!window._heartTimer || Date.now() - window._heartTimer > 1400) {
+          window._heartTimer = Date.now();
+          showToast('♥ Heart', '#ff6bca');
+        }
+      }
+      // STAR BURST
+      else if (spreadAvg < 0.09) {
+        const cx = ((pcA.x + pcB.x) / 2) * W;
+        const cy = ((pcA.y + pcB.y) / 2) * H;
+        drawStar(cx, cy, 90);
+        currentGesture = 'Star Burst 💥'; gestureActive = true;
+        if (!window._starTimer || Date.now() - window._starTimer > 1600) {
+          window._starTimer = Date.now();
+          spawnBurst(cx, cy, '#ffdd66', 25);
+          zap();
+          showToast('💥 Star Burst!', '#ffdd66');
+        }
+      }
+    }
+    // PEACE — one or two hands
+    handsData.forEach((lms) => {
+      const pc = palmCenter(lms);
+      const dIndex = Math.hypot(lms[8].x - pc.x, lms[8].y - pc.y);
+      const dMiddle = Math.hypot(lms[12].x - pc.x, lms[12].y - pc.y);
+      const dRing = Math.hypot(lms[16].x - pc.x, lms[16].y - pc.y);
+      const dPinky = Math.hypot(lms[20].x - pc.x, lms[20].y - pc.y);
+      if (dIndex > 0.18 && dMiddle > 0.18 && dRing < 0.16 && dPinky < 0.16) {
+        const cx = pc.x * W, cy = pc.y * H;
+        drawPeace(cx, cy, 70);
+        if (currentGesture === 'Awaiting gesture') {
+          currentGesture = 'Peace ✌'; gestureActive = true;
+          if (!window._peaceTimer || Date.now() - window._peaceTimer > 1400) {
+            window._peaceTimer = Date.now();
+            pop(700);
+            showToast('✌ Peace', '#ff6bca');
+          }
+        }
+      }
+    });
+    humUpdate(80, 0);
+  }
+
+  // ──── WRITE MODE ────
+  else if (mode === 'write') {
+    humUpdate(80, 0);
+    if (handsData.length >= 1) {
+      const lms = handsData[0];
+      const pc = palmCenter(lms);
+      const dIndex = Math.hypot(lms[8].x - pc.x, lms[8].y - pc.y);
+      const pinch = pinchAmount(lms);
+      const pointing = dIndex > 0.17 && pinch > 0.08;
+
+      const tipPx = landmarkPx(lms[8]);
+
+      // Shake to clear detection
+      const now = performance.now();
+      // count extended fingers (index, middle, ring, pinky)
+      let extended = 0;
+      extended += fingerExtended(lms, 8, 6) ? 1 : 0;
+      extended += fingerExtended(lms, 12, 10) ? 1 : 0;
+      extended += fingerExtended(lms, 16, 14) ? 1 : 0;
+      extended += fingerExtended(lms, 20, 18) ? 1 : 0;
+      const openPalm = extended >= 3;
+
+      // history: wrist X in normalized coords
+      shakeHistory.push({ x: lms[0].x, t: now });
+      if (shakeHistory.length > 30) shakeHistory.shift();
+
+      if (openPalm && shakeHistory.length >= 8 && (now - shakeClearedAt > 2000)) {
+        // count direction reversals in recent history
+        let reversals = 0;
+        let lastDir = 0;
+        for (let i = 1; i < shakeHistory.length; i++) {
+          const dx = shakeHistory[i].x - shakeHistory[i-1].x;
+          const dir = Math.sign(dx);
+          if (Math.abs(dx) > 0.015) {
+            if (dir !== 0 && lastDir !== 0 && dir !== lastDir) reversals++;
+            if (dir !== 0) lastDir = dir;
+          }
+        }
+        shakeReversals = reversals;
+        const progress = Math.min(1, reversals / 6);
+        updateShakeRing(progress);
+        if (reversals >= 6) {
+          paths = []; activePath = null;
+          drawCtx.clearRect(0, 0, W, H);
+          pop(680);
+          showToast('🌊 Canvas cleared', '#6bb5ff');
+          shakeClearedAt = now;
+          shakeHistory = []; shakeReversals = 0;
+          updateShakeRing(0);
+        }
+        currentGesture = 'Shake to Clear'; gestureActive = true;
+      } else {
+        // decay ring if not shaking
+        if (shakeReversals > 0) {
+          shakeReversals *= 0.9;
+          if (shakeReversals < 0.5) shakeReversals = 0;
+          updateShakeRing(Math.min(1, shakeReversals / 6));
+        }
+      }
+
+      // pen state
+      // canvas is CSS-mirrored, so tipPx already matches visible video
+      if (pinch < 0.06) {
+        // pen up
+        endStroke();
+        if (currentGesture === 'Awaiting gesture') { currentGesture = 'Pen Up (pinch)'; gestureActive = true; }
+      } else if (pointing && !openPalm) {
+        // pen down — draw
+        const hue = (paths.length * 47 + time * 20) % 360;
+        const color = `hsl(${hue}, 90%, 65%)`;
+        if (!activePath) activePath = { pts: [], color };
+        commitStrokePoint(tipPx.x, tipPx.y, color);
+        // cursor
+        fxCtx.save();
+        fxCtx.globalCompositeOperation = 'screen';
+        const pulse = 6 + Math.sin(time * 8) * 2;
+        fxCtx.strokeStyle = color;
+        fxCtx.shadowColor = color;
+        fxCtx.shadowBlur = 14;
+        fxCtx.lineWidth = 2;
+        fxCtx.beginPath();
+        fxCtx.arc(tipPx.x, tipPx.y, pulse, 0, Math.PI * 2);
+        fxCtx.stroke();
+        fxCtx.restore();
+        if (currentGesture === 'Awaiting gesture' || currentGesture === 'Pen Up (pinch)') {
+          currentGesture = 'Pen Down ✏'; gestureActive = true;
+        }
+      } else {
+        // hovering — show soft cursor, don't draw
+        endStroke();
+        fxCtx.save();
+        fxCtx.globalCompositeOperation = 'screen';
+        fxCtx.strokeStyle = '#6bb5ff';
+        fxCtx.globalAlpha = 0.5;
+        fxCtx.lineWidth = 1.5;
+        fxCtx.beginPath();
+        fxCtx.arc(tipPx.x, tipPx.y, 12, 0, Math.PI * 2);
+        fxCtx.stroke();
+        fxCtx.restore();
+        if (currentGesture === 'Awaiting gesture') { currentGesture = 'Hover'; gestureActive = true; }
+      }
+    } else {
+      endStroke();
+    }
+  }
+
+  updateParticles();
+  updateRipples();
+
+  // HUD label
+  gestureLabel.textContent = currentGesture;
+  hud.classList.toggle('active', gestureActive);
+  handCountEl.textContent = handsData.length;
+}
+
+// ────────────── RENDER LOOP ──────────────
+function renderLoop() {
+  const now = performance.now();
+  const dt = (now - lastFrameTs) / 1000;
+  lastFrameTs = now;
+  time += dt;
+
+  // FPS
+  fpsAcc += 1;
+  if (now - fpsLast > 1000) {
+    const fps = Math.round(fpsAcc * 1000 / (now - fpsLast));
+    fpsLabel.textContent = fps;
+    camDot.classList.toggle('live', fps > 5);
+    fpsAcc = 0; fpsLast = now;
+  }
+
+  processFrame();
+  requestAnimationFrame(renderLoop);
+}
+
+// ────────────── MEDIAPIPE INTEGRATION ──────────────
+let hands = null;
+let camera = null;
+
+function onResults(results) {
+  handsData = results.multiHandLandmarks || [];
+  handsMeta = results.multiHandedness || [];
+}
+
+async function startExperience() {
+  initAudio();
+  humStart();
+  resize();
+
+  hands = new Hands({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+  });
+  hands.setOptions({
+    maxNumHands: 2,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.72,
+    minTrackingConfidence: 0.72
+  });
+  hands.onResults(onResults);
+
+  camera = new Camera(video, {
+    onFrame: async () => {
+      if (hands) await hands.send({ image: video });
+    },
+    width: 1920,
+    height: 1080
+  });
+
+  try {
+    await camera.start();
+  } catch (e) {
+    console.error('camera start failed', e);
+    showToast('Camera blocked', '#ff5b74');
+  }
+
+  requestAnimationFrame(renderLoop);
+}
+
+// ────────────── SPLASH TRIGGER ──────────────
+startBtn.addEventListener('click', () => {
+  splash.classList.add('hide');
+  setTimeout(() => { splash.style.display = 'none'; }, 800);
+  startExperience();
+});
+
+// Init sizing so canvases don't flash blank behind splash
+resize();
+setMode('play');
+
+})();
+</script>
+        <script defer
+            src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496"
+            integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ=="
+            data-cf-beacon='{"version":"2024.11.0","token":"7f7b0fd8732c4326aae4b9d58d5c514a","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}'
+            crossorigin="anonymous"></script>
+    </body>
+</html>
